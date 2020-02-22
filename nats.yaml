@@ -1,0 +1,30 @@
+---
+apiVersion: "nats.io/v1alpha2"
+kind: "NatsCluster"
+metadata:
+  name: "nc"
+  namespace: __NAMESPACE__
+spec:
+  size: __SIZE__
+---
+apiVersion: "streaming.nats.io/v1alpha1"
+kind: "NatsStreamingCluster"
+metadata:
+  name: "nats"
+  namespace: __NAMESPACE__
+spec:
+  size: __SIZE__
+  natsSvc: "nc"
+  config:
+    storeDir: "/store"
+  template:
+    spec:
+      volumes:
+      - name: nats-store
+        hostPath:
+          path: /mnt/store
+      containers:
+        - name: nats-streaming
+          volumeMounts:
+            - name: nats-store
+              mountPath: /store
