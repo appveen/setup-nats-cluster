@@ -1,0 +1,112 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stan-config
+  namespace: __namespace__
+data:
+  stan.conf: |
+    port: 4222
+    http: 8222
+
+    streaming {
+     ns: "nats://nats.__namespace__:4222"
+     id: odp-cluster
+     store: file
+     dir: /data/store
+     store_limits {
+       max_age: "24h"
+     }
+     cluster {
+       node_id: $POD_NAME
+       log_path: /data/log
+       peers: ["stan-0", "stan-1", "stan-2"]
+     }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stan
+  namespace: __namespace__
+  labels:
+    app: stan
+spec:
+  selector:
+    app: stan
+  clusterIP: None
+  ports:
+    - name: metrics
+      port: 7777
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: stan
+  namespace: __namespace__
+  labels:
+    app: stan
+spec:
+  selector:
+    matchLabels:
+      app: stan
+  serviceName: stan
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: stan
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - topologyKey: "kubernetes.io/hostname"
+            labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - stan
+      # STAN Server
+      containers:
+      - name: stan
+        image: nats-streaming:0.16.2
+        ports:
+        - containerPort: 7777
+          name: metrics
+        - containerPort: 8222
+          name: monitor
+        args:
+         - "-sc"
+         - "/etc/stan-config/stan.conf"
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        volumeMounts:
+          - name: config-volume
+            mountPath: /etc/stan-config
+          - name: nats-store
+            mountPath: /data
+            subPathExpr: $(POD_NAME)
+        resources:
+          requests:
+            cpu: 0
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8222
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: config-volume
+        configMap:
+          name: stan-config
+      - name: nats-store
+        hostPath:
+          path: /tmp
